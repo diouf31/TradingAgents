@@ -9,6 +9,19 @@ from tradingagents.agents.utils.agent_utils import (
     get_language_instruction,
 )
 from tradingagents.dataflows.config import get_config
+from tradingagents.dataflows.crypto_utils import is_crypto_ticker
+
+_STOCK_SYSTEM = (
+    "You are a researcher tasked with analyzing fundamental information over the past week about a company. Please write a comprehensive report of the company's fundamental information such as financial documents, company profile, basic company financials, and company financial history to gain a full view of the company's fundamental information to inform traders. Make sure to include as much detail as possible. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."
+    " Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."
+    " Use the available tools: `get_fundamentals` for comprehensive company analysis, `get_balance_sheet`, `get_cashflow`, and `get_income_statement` for specific financial statements."
+)
+
+_CRYPTO_SYSTEM = (
+    "You are a researcher tasked with analyzing fundamental information about a cryptocurrency. Please write a comprehensive report covering: market overview (market cap, rank, fully diluted valuation), tokenomics (circulating supply, total supply, max supply, inflation schedule), price performance (multi-timeframe returns, distance from ATH/ATL), market activity (24h volume, volume/market cap ratio, liquidity score), and community/ecosystem health. Make sure to include as much detail as possible. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."
+    " Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."
+    " Use the available tools: `get_fundamentals` for market overview and tokenomics, `get_balance_sheet` for detailed supply/valuation metrics, `get_cashflow` for volume and market activity, and `get_income_statement` for price performance and returns."
+)
 
 
 def create_fundamentals_analyst(llm):
@@ -23,11 +36,9 @@ def create_fundamentals_analyst(llm):
             get_income_statement,
         ]
 
+        base_msg = _CRYPTO_SYSTEM if is_crypto_ticker(state["company_of_interest"]) else _STOCK_SYSTEM
         system_message = (
-            "You are a researcher tasked with analyzing fundamental information over the past week about a company. Please write a comprehensive report of the company's fundamental information such as financial documents, company profile, basic company financials, and company financial history to gain a full view of the company's fundamental information to inform traders. Make sure to include as much detail as possible. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."
-            + " Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."
-            + " Use the available tools: `get_fundamentals` for comprehensive company analysis, `get_balance_sheet`, `get_cashflow`, and `get_income_statement` for specific financial statements."
-            + get_language_instruction(),
+            base_msg + get_language_instruction(),
         )
 
         prompt = ChatPromptTemplate.from_messages(

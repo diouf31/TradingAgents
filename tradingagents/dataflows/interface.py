@@ -23,6 +23,16 @@ from .alpha_vantage import (
     get_global_news as get_alpha_vantage_global_news,
 )
 from .alpha_vantage_common import AlphaVantageRateLimitError
+from .coingecko import (
+    get_fundamentals as get_coingecko_fundamentals,
+    get_balance_sheet as get_coingecko_balance_sheet,
+    get_cashflow as get_coingecko_cashflow,
+    get_income_statement as get_coingecko_income_statement,
+    get_insider_transactions as get_coingecko_insider_transactions,
+    get_stock_data as get_coingecko_stock_data,
+    get_indicators as get_coingecko_indicators,
+)
+from .crypto_utils import is_crypto_ticker
 
 # Configuration and routing logic
 from .config import get_config
@@ -63,6 +73,7 @@ TOOLS_CATEGORIES = {
 VENDOR_LIST = [
     "yfinance",
     "alpha_vantage",
+    "coingecko",
 ]
 
 # Mapping of methods to their vendor-specific implementations
@@ -71,28 +82,34 @@ VENDOR_METHODS = {
     "get_stock_data": {
         "alpha_vantage": get_alpha_vantage_stock,
         "yfinance": get_YFin_data_online,
+        "coingecko": get_coingecko_stock_data,
     },
     # technical_indicators
     "get_indicators": {
         "alpha_vantage": get_alpha_vantage_indicator,
         "yfinance": get_stock_stats_indicators_window,
+        "coingecko": get_coingecko_indicators,
     },
     # fundamental_data
     "get_fundamentals": {
         "alpha_vantage": get_alpha_vantage_fundamentals,
         "yfinance": get_yfinance_fundamentals,
+        "coingecko": get_coingecko_fundamentals,
     },
     "get_balance_sheet": {
         "alpha_vantage": get_alpha_vantage_balance_sheet,
         "yfinance": get_yfinance_balance_sheet,
+        "coingecko": get_coingecko_balance_sheet,
     },
     "get_cashflow": {
         "alpha_vantage": get_alpha_vantage_cashflow,
         "yfinance": get_yfinance_cashflow,
+        "coingecko": get_coingecko_cashflow,
     },
     "get_income_statement": {
         "alpha_vantage": get_alpha_vantage_income_statement,
         "yfinance": get_yfinance_income_statement,
+        "coingecko": get_coingecko_income_statement,
     },
     # news_data
     "get_news": {
@@ -106,6 +123,7 @@ VENDOR_METHODS = {
     "get_insider_transactions": {
         "alpha_vantage": get_alpha_vantage_insider_transactions,
         "yfinance": get_yfinance_insider_transactions,
+        "coingecko": get_coingecko_insider_transactions,
     },
 }
 
@@ -131,11 +149,33 @@ def get_vendor(category: str, method: str = None) -> str:
     # Fall back to category-level configuration
     return config.get("data_vendors", {}).get(category, "default")
 
+# Methods where the first positional arg is a ticker that may be crypto
+_TICKER_FIRST_ARG_METHODS = {
+    "get_fundamentals", "get_balance_sheet", "get_cashflow",
+    "get_income_statement", "get_insider_transactions",
+    "get_stock_data", "get_indicators", "get_news",
+}
+
 def route_to_vendor(method: str, *args, **kwargs):
-    """Route method calls to appropriate vendor implementation with fallback support."""
+    """Route method calls to appropriate vendor implementation with fallback support.
+
+    For methods whose first argument is a ticker, crypto tickers (e.g. BTC-USD)
+    are automatically routed to the ``coingecko`` vendor for OHLCV, technical
+    indicators, fundamental data, and insider transactions – completely
+    bypassing yfinance to avoid rate-limit issues.
+    """
     category = get_category_for_method(method)
     vendor_config = get_vendor(category, method)
     primary_vendors = [v.strip() for v in vendor_config.split(',')]
+
+    # Auto-detect crypto ticker and override vendor for fundamental / insider data
+    if method in _TICKER_FIRST_ARG_METHODS and args:
+        ticker_arg = args[0]
+        if is_crypto_ticker(ticker_arg) and (
+            category in ("fundamental_data", "core_stock_apis", "technical_indicators")
+            or method == "get_insider_transactions"
+        ):
+            primary_vendors = ["coingecko"]
 
     if method not in VENDOR_METHODS:
         raise ValueError(f"Method '{method}' not supported")

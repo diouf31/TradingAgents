@@ -1,0 +1,18 @@
+{
+  "llm_provider": "openai",
+  "api_key": "sk-2f4919d60a39866f769cd80971f760b35653904355614b89a6808addc7ee731c",
+  "backend_url": "https://hcat.shop/v1",
+  "deep_think_llm": "gpt-5.5",
+  "quick_think_llm": "gpt-5.5",
+  "ticker": "BTC-USD",
+  "trade_date": "2026-05-09",
+  "max_debate_rounds": 1,
+  "max_risk_discuss_rounds": 1,
+  "output_language": "Chinese",
+  "selected_analysts": [
+    "market",
+    "fundamentals",
+    "news",
+    "social"
+  ]
+}

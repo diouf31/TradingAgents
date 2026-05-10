@@ -1,6 +1,7 @@
 import os
 from typing import Any, Optional
 
+import httpx
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
@@ -166,8 +167,14 @@ class OpenAIClient(BaseLLMClient):
 
         # Native OpenAI: use Responses API for consistent behavior across
         # all model families. Third-party providers use Chat Completions.
-        if self.provider == "openai":
+        # Skip Responses API when a custom base_url is set (relay/proxy).
+        if self.provider == "openai" and not self.base_url:
             llm_kwargs["use_responses_api"] = True
+
+        # When using a relay/proxy, disable SSL verification to avoid
+        # handshake failures with servers that have non-standard certs.
+        if self.base_url:
+            llm_kwargs["http_client"] = httpx.Client(verify=False)
 
         # DeepSeek's thinking-mode quirks live in their own subclass so the
         # base NormalizedChatOpenAI stays free of provider-specific branches.

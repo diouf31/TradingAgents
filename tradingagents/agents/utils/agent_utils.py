@@ -36,10 +36,21 @@ def get_language_instruction() -> str:
 
 def build_instrument_context(ticker: str) -> str:
     """Describe the exact instrument so agents preserve exchange-qualified tickers."""
-    return (
+    from tradingagents.dataflows.crypto_utils import is_crypto_ticker
+    base = (
         f"The instrument to analyze is `{ticker}`. "
-        "Use this exact ticker in every tool call, report, and recommendation, "
-        "preserving any exchange suffix (e.g. `.TO`, `.L`, `.HK`, `.T`)."
+        "Use this exact ticker in every tool call, report, and recommendation"
+    )
+    if is_crypto_ticker(ticker):
+        return (
+            base + ". "
+            "This is a **cryptocurrency**, not a stock. Analyze it using crypto-specific "
+            "metrics (market cap, circulating/total supply, on-chain activity, tokenomics, "
+            "protocol utility, ecosystem growth) instead of traditional company financials. "
+            "Fundamental data tools will return crypto market data from CoinGecko."
+        )
+    return (
+        base + ", preserving any exchange suffix (e.g. `.TO`, `.L`, `.HK`, `.T`)."
     )
 
 def create_msg_delete():
