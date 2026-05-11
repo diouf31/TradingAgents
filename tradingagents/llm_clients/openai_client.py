@@ -173,8 +173,11 @@ class OpenAIClient(BaseLLMClient):
 
         # When using a relay/proxy, disable SSL verification to avoid
         # handshake failures with servers that have non-standard certs.
+        # Also increase timeout and retries for unstable relay connections.
         if self.base_url:
-            llm_kwargs["http_client"] = httpx.Client(verify=False)
+            llm_kwargs["http_client"] = httpx.Client(verify=False, timeout=120)
+            llm_kwargs["max_retries"] = 3
+            llm_kwargs["timeout"] = 120
 
         # DeepSeek's thinking-mode quirks live in their own subclass so the
         # base NormalizedChatOpenAI stays free of provider-specific branches.

@@ -1,3 +1,4 @@
+import os
 from typing import Annotated
 
 # Import from vendor-specific modules
@@ -31,6 +32,12 @@ from .coingecko import (
     get_insider_transactions as get_coingecko_insider_transactions,
     get_stock_data as get_coingecko_stock_data,
     get_indicators as get_coingecko_indicators,
+    get_news as get_coingecko_news,
+    get_global_news as get_coingecko_global_news,
+)
+from .blockbeats import (
+    get_news as get_blockbeats_news,
+    get_global_news as get_blockbeats_global_news,
 )
 from .crypto_utils import is_crypto_ticker
 
@@ -74,6 +81,7 @@ VENDOR_LIST = [
     "yfinance",
     "alpha_vantage",
     "coingecko",
+    "blockbeats",
 ]
 
 # Mapping of methods to their vendor-specific implementations
@@ -113,10 +121,14 @@ VENDOR_METHODS = {
     },
     # news_data
     "get_news": {
+        "blockbeats": get_blockbeats_news,
+        "coingecko": get_coingecko_news,
         "alpha_vantage": get_alpha_vantage_news,
         "yfinance": get_news_yfinance,
     },
     "get_global_news": {
+        "blockbeats": get_blockbeats_global_news,
+        "coingecko": get_coingecko_global_news,
         "yfinance": get_global_news_yfinance,
         "alpha_vantage": get_alpha_vantage_global_news,
     },
@@ -168,14 +180,20 @@ def route_to_vendor(method: str, *args, **kwargs):
     vendor_config = get_vendor(category, method)
     primary_vendors = [v.strip() for v in vendor_config.split(',')]
 
-    # Auto-detect crypto ticker and override vendor for fundamental / insider data
+    # Auto-detect crypto ticker and override vendor
     if method in _TICKER_FIRST_ARG_METHODS and args:
         ticker_arg = args[0]
         if is_crypto_ticker(ticker_arg) and (
-            category in ("fundamental_data", "core_stock_apis", "technical_indicators")
-            or method == "get_insider_transactions"
+            category in ("fundamental_data", "core_stock_apis", "technical_indicators", "news_data")
         ):
-            primary_vendors = ["coingecko"]
+            if category == "news_data":
+                primary_vendors = ["blockbeats", "coingecko"]
+            else:
+                primary_vendors = ["coingecko"]
+
+    # get_global_news has no ticker arg; prefer blockbeats/coingecko when available
+    if method == "get_global_news" and os.environ.get("BLOCKBEATS_API_KEY"):
+        primary_vendors = ["blockbeats", "coingecko"]
 
     if method not in VENDOR_METHODS:
         raise ValueError(f"Method '{method}' not supported")
@@ -187,6 +205,7 @@ def route_to_vendor(method: str, *args, **kwargs):
         if vendor not in fallback_vendors:
             fallback_vendors.append(vendor)
 
+    last_error = None
     for vendor in fallback_vendors:
         if vendor not in VENDOR_METHODS[method]:
             continue
@@ -197,6 +216,9 @@ def route_to_vendor(method: str, *args, **kwargs):
         try:
             return impl_func(*args, **kwargs)
         except AlphaVantageRateLimitError:
-            continue  # Only rate limits trigger fallback
+            continue  # Rate limits trigger fallback
+        except RuntimeError as e:
+            last_error = e
+            continue  # API errors (e.g. missing key) trigger fallback
 
-    raise RuntimeError(f"No available vendor for '{method}'")
+    raise last_error or RuntimeError(f"No available vendor for '{method}'")

@@ -18,6 +18,7 @@ DEFAULT_GUI_CONFIG = {
     "backend_url": "https://hcat.shop/v1",
     "deep_think_llm": "gpt-4o",
     "quick_think_llm": "gpt-4o-mini",
+    "blockbeats_api_key": "bbp_18304449bb2a25e3bf96112e90ecec409c51aadc4bc8ad6f8f05f0f45676",
     "ticker": "BTC-USD",
     "trade_date": datetime.now().strftime("%Y-%m-%d"),
     "max_debate_rounds": 1,
@@ -102,6 +103,15 @@ class TradingAgentsGUI:
         self.quick_model_var = tk.StringVar(value=self.config["quick_think_llm"])
         ttk.Entry(row3, textvariable=self.quick_model_var, width=20).pack(side=tk.LEFT, padx=4)
 
+        # Row 4: BlockBeats API Key
+        row4 = ttk.Frame(llm_frame)
+        row4.pack(fill=tk.X, pady=2)
+
+        ttk.Label(row4, text="BlockBeats Key:").pack(side=tk.LEFT)
+        self.blockbeats_key_var = tk.StringVar(value=self.config.get("blockbeats_api_key", ""))
+        ttk.Entry(row4, textvariable=self.blockbeats_key_var, width=52, show="*").pack(side=tk.LEFT, padx=4, fill=tk.X, expand=True)
+        ttk.Label(row4, text="(加密新闻数据源，留空则用 CoinGecko)", foreground="gray").pack(side=tk.LEFT)
+
         # === Trading Parameters ===
         trade_frame = ttk.LabelFrame(main_frame, text="交易参数", padding=8)
         trade_frame.pack(fill=tk.X, pady=(0, 8))
@@ -179,6 +189,7 @@ class TradingAgentsGUI:
             "backend_url": self.backend_url_var.get().strip(),
             "deep_think_llm": self.deep_model_var.get().strip(),
             "quick_think_llm": self.quick_model_var.get().strip(),
+            "blockbeats_api_key": self.blockbeats_key_var.get().strip(),
             "ticker": self.ticker_var.get().strip(),
             "trade_date": self.date_var.get().strip(),
             "max_debate_rounds": self.debate_rounds_var.get(),
@@ -194,6 +205,7 @@ class TradingAgentsGUI:
         self.backend_url_var.set(cfg.get("backend_url", ""))
         self.deep_model_var.set(cfg.get("deep_think_llm", "gpt-4o"))
         self.quick_model_var.set(cfg.get("quick_think_llm", "gpt-4o-mini"))
+        self.blockbeats_key_var.set(cfg.get("blockbeats_api_key", ""))
         self.ticker_var.set(cfg.get("ticker", "BTC-USD"))
         self.date_var.set(cfg.get("trade_date", datetime.now().strftime("%Y-%m-%d")))
         self.debate_rounds_var.set(cfg.get("max_debate_rounds", 1))
@@ -349,6 +361,11 @@ class TradingAgentsGUI:
             }
             env_var = env_key_map.get(provider, "OPENAI_API_KEY")
             os.environ[env_var] = api_key
+
+            # Set BlockBeats API key
+            bb_key = cfg.get("blockbeats_api_key", "")
+            if bb_key:
+                os.environ["BLOCKBEATS_API_KEY"] = bb_key
 
             # Import here to avoid slow startup
             from tradingagents.graph.trading_graph import TradingAgentsGraph

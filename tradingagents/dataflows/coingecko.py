@@ -31,11 +31,17 @@ if _CG_API_KEY:
 
 # Simple in-memory cache: {cache_key: (timestamp, data)}
 _CACHE: dict[str, tuple[float, dict]] = {}
-_CACHE_TTL = 300  # 5 minutes
+_CACHE_TTL = 600  # 10 minutes — generous to avoid repeat hits
+
+# Throttle: minimum seconds between CoinGecko requests (free tier = 10-30 req/min)
+_LAST_REQUEST_TIME = 0.0
+_MIN_REQUEST_INTERVAL = 2.5  # ~24 req/min max
 
 
 def _cg_get(endpoint: str, params: dict | None = None, max_retries: int = 5) -> dict:
-    """GET from CoinGecko with retry + simple cache."""
+    """GET from CoinGecko with retry + simple cache + throttle."""
+    global _LAST_REQUEST_TIME
+
     cache_key = f"{endpoint}|{json.dumps(params or {}, sort_keys=True)}"
     now = time.time()
     if cache_key in _CACHE:
@@ -43,22 +49,28 @@ def _cg_get(endpoint: str, params: dict | None = None, max_retries: int = 5) -> 
         if now - ts < _CACHE_TTL:
             return data
 
+    # Throttle requests
+    elapsed = time.time() - _LAST_REQUEST_TIME
+    if elapsed < _MIN_REQUEST_INTERVAL:
+        time.sleep(_MIN_REQUEST_INTERVAL - elapsed)
+
     url = f"{_BASE_URL}{endpoint}"
     for attempt in range(max_retries):
         try:
+            _LAST_REQUEST_TIME = time.time()
             resp = _SESSION.get(url, params=params, timeout=15)
             if resp.status_code == 429:
-                delay = 5 * (2 ** attempt)  # 5, 10, 20, 40, 80s
+                delay = 10 * (2 ** attempt)  # 10, 20, 40, 80, 160s
                 logger.warning(f"CoinGecko rate limited, retrying in {delay}s (attempt {attempt+1}/{max_retries})")
                 time.sleep(delay)
                 continue
             resp.raise_for_status()
             data = resp.json()
-            _CACHE[cache_key] = (now, data)
+            _CACHE[cache_key] = (time.time(), data)
             return data
         except requests.RequestException as e:
             if attempt < max_retries - 1:
-                time.sleep(3)
+                time.sleep(5)
             else:
                 raise RuntimeError(f"CoinGecko API error: {e}") from e
     return {}
@@ -341,6 +353,170 @@ def get_insider_transactions(
         "For on-chain whale activity and large holder movements, "
         "consider monitoring blockchain explorers or on-chain analytics platforms."
     )
+
+
+# ---------------------------------------------------------------------------
+# News / Market Context — bypass yfinance for crypto
+# ---------------------------------------------------------------------------
+
+def get_news(
+    ticker: Annotated[str, "crypto ticker, e.g. BTC-USD"],
+    start_date: Annotated[str, "Start date yyyy-mm-dd"],
+    end_date: Annotated[str, "End date yyyy-mm-dd"],
+) -> str:
+    """Provide crypto market context as a news substitute via CoinGecko."""
+    try:
+        coin_id = ticker_to_coingecko_id(ticker)
+        symbol, _ = parse_crypto_ticker(ticker)
+
+        # Coin metadata (description, links, community)
+        coin = _cg_get(f"/coins/{coin_id}", {
+            "localization": "false",
+            "tickers": "false",
+            "market_data": "true",
+            "community_data": "true",
+            "developer_data": "false",
+        })
+
+        lines = [f"## {symbol} Market Context & News, {start_date} to {end_date}\n"]
+
+        # Price snapshot
+        md = coin.get("market_data", {})
+        price = md.get("current_price", {}).get("usd")
+        chg_24h = md.get("price_change_percentage_24h")
+        chg_7d = md.get("price_change_percentage_7d")
+        chg_30d = md.get("price_change_percentage_30d")
+        ath = md.get("ath", {}).get("usd")
+        ath_chg = md.get("ath_change_percentage", {}).get("usd")
+
+        lines.append("### Price Snapshot")
+        if price is not None:
+            lines.append(f"- Current Price: ${price:,.2f}")
+        if chg_24h is not None:
+            lines.append(f"- 24h Change: {chg_24h:+.2f}%")
+        if chg_7d is not None:
+            lines.append(f"- 7d Change: {chg_7d:+.2f}%")
+        if chg_30d is not None:
+            lines.append(f"- 30d Change: {chg_30d:+.2f}%")
+        if ath is not None:
+            lines.append(f"- All-Time High: ${ath:,.2f} ({ath_chg:+.1f}% from ATH)")
+        lines.append("")
+
+        # Market cap & volume
+        mcap = md.get("market_cap", {}).get("usd")
+        vol = md.get("total_volume", {}).get("usd")
+        mcap_rank = coin.get("market_cap_rank")
+        lines.append("### Market Overview")
+        if mcap_rank:
+            lines.append(f"- Market Cap Rank: #{mcap_rank}")
+        if mcap:
+            lines.append(f"- Market Cap: ${mcap:,.0f}")
+        if vol:
+            lines.append(f"- 24h Volume: ${vol:,.0f}")
+        lines.append("")
+
+        # Community sentiment
+        community = coin.get("community_data", {})
+        reddit_subs = community.get("reddit_subscribers")
+        twitter_followers = community.get("twitter_followers")
+        if reddit_subs or twitter_followers:
+            lines.append("### Community Sentiment")
+            if reddit_subs:
+                lines.append(f"- Reddit Subscribers: {reddit_subs:,}")
+            if twitter_followers:
+                lines.append(f"- Twitter Followers: {twitter_followers:,}")
+            lines.append("")
+
+        # Coin description (truncated)
+        desc = coin.get("description", {}).get("en", "")
+        if desc:
+            # Take first 500 chars
+            short = desc[:500].rsplit(" ", 1)[0] if len(desc) > 500 else desc
+            # Strip HTML tags
+            import re
+            short = re.sub(r"<[^>]+>", "", short)
+            lines.append("### Project Summary")
+            lines.append(short + ("..." if len(desc) > 500 else ""))
+            lines.append("")
+
+        # Trending coins context
+        try:
+            trending = _cg_get("/search/trending")
+            coins_trending = trending.get("coins", [])[:5]
+            if coins_trending:
+                lines.append("### Trending Coins (CoinGecko)")
+                for i, item in enumerate(coins_trending, 1):
+                    c = item.get("item", {})
+                    name = c.get("name", "")
+                    sym = c.get("symbol", "")
+                    rank = c.get("market_cap_rank", "N/A")
+                    lines.append(f"{i}. {name} ({sym}) — Rank #{rank}")
+                lines.append("")
+        except Exception:
+            pass
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        return f"Error fetching crypto news context for {ticker}: {e}"
+
+
+def get_global_news(
+    curr_date: Annotated[str, "Current date yyyy-mm-dd"],
+    look_back_days: Annotated[int, "Days to look back"] = 7,
+    limit: Annotated[int, "Max articles"] = 10,
+) -> str:
+    """Provide global crypto market context as a news substitute via CoinGecko."""
+    try:
+        lines = [f"## Global Crypto Market Context, as of {curr_date}\n"]
+
+        # Global market data
+        global_data = _cg_get("/global")
+        data = global_data.get("data", {})
+        total_mcap = data.get("total_market_cap", {}).get("usd")
+        total_vol = data.get("total_volume", {}).get("usd")
+        btc_dom = data.get("market_cap_percentage", {}).get("btc")
+        eth_dom = data.get("market_cap_percentage", {}).get("eth")
+        active_coins = data.get("active_cryptocurrencies")
+        mcap_chg = data.get("market_cap_change_percentage_24h_usd")
+
+        lines.append("### Global Market Overview")
+        if total_mcap:
+            lines.append(f"- Total Market Cap: ${total_mcap:,.0f}")
+        if mcap_chg is not None:
+            lines.append(f"- 24h Market Cap Change: {mcap_chg:+.2f}%")
+        if total_vol:
+            lines.append(f"- 24h Volume: ${total_vol:,.0f}")
+        if btc_dom is not None:
+            lines.append(f"- BTC Dominance: {btc_dom:.1f}%")
+        if eth_dom is not None:
+            lines.append(f"- ETH Dominance: {eth_dom:.1f}%")
+        if active_coins:
+            lines.append(f"- Active Cryptocurrencies: {active_coins:,}")
+        lines.append("")
+
+        # Trending coins
+        try:
+            trending = _cg_get("/search/trending")
+            coins = trending.get("coins", [])[:limit]
+            if coins:
+                lines.append("### Trending Coins")
+                for i, item in enumerate(coins, 1):
+                    c = item.get("item", {})
+                    name = c.get("name", "")
+                    sym = c.get("symbol", "")
+                    rank = c.get("market_cap_rank", "N/A")
+                    price_chg = c.get("data", {}).get("price_change_percentage_24h", {}).get("usd")
+                    chg_str = f" ({price_chg:+.1f}% 24h)" if price_chg else ""
+                    lines.append(f"{i}. {name} ({sym}) — Rank #{rank}{chg_str}")
+                lines.append("")
+        except Exception:
+            pass
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        return f"Error fetching global crypto market context: {e}"
 
 
 # ---------------------------------------------------------------------------
