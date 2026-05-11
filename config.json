@@ -5,6 +5,7 @@
   "deep_think_llm": "gpt-5.5",
   "quick_think_llm": "gpt-5.5",
   "blockbeats_api_key": "bbp_18304449bb2a25e3bf96112e90ecec409c51aadc4bc8ad6f8f05f0f45676",
+  "lunarcrush_api_key": "",
   "ticker": "ETH-USD",
   "trade_date": "2026-05-09",
   "max_debate_rounds": 1,

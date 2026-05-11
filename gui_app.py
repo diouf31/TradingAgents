@@ -19,6 +19,7 @@ DEFAULT_GUI_CONFIG = {
     "deep_think_llm": "gpt-4o",
     "quick_think_llm": "gpt-4o-mini",
     "blockbeats_api_key": "bbp_18304449bb2a25e3bf96112e90ecec409c51aadc4bc8ad6f8f05f0f45676",
+    "lunarcrush_api_key": "aobb8woyffbfqhoawr86b1l06dmp17octycmmx3a8",
     "ticker": "BTC-USD",
     "trade_date": datetime.now().strftime("%Y-%m-%d"),
     "max_debate_rounds": 1,
@@ -112,6 +113,15 @@ class TradingAgentsGUI:
         ttk.Entry(row4, textvariable=self.blockbeats_key_var, width=52, show="*").pack(side=tk.LEFT, padx=4, fill=tk.X, expand=True)
         ttk.Label(row4, text="(加密新闻数据源，留空则用 CoinGecko)", foreground="gray").pack(side=tk.LEFT)
 
+        # Row 5: LunarCrush API Key
+        row5 = ttk.Frame(llm_frame)
+        row5.pack(fill=tk.X, pady=2)
+
+        ttk.Label(row5, text="LunarCrush Key:").pack(side=tk.LEFT)
+        self.lunarcrush_key_var = tk.StringVar(value=self.config.get("lunarcrush_api_key", ""))
+        ttk.Entry(row5, textvariable=self.lunarcrush_key_var, width=52, show="*").pack(side=tk.LEFT, padx=4, fill=tk.X, expand=True)
+        ttk.Label(row5, text="(社交媒体情绪数据源: Twitter/Reddit/YouTube/TikTok)", foreground="gray").pack(side=tk.LEFT)
+
         # === Trading Parameters ===
         trade_frame = ttk.LabelFrame(main_frame, text="交易参数", padding=8)
         trade_frame.pack(fill=tk.X, pady=(0, 8))
@@ -190,6 +200,7 @@ class TradingAgentsGUI:
             "deep_think_llm": self.deep_model_var.get().strip(),
             "quick_think_llm": self.quick_model_var.get().strip(),
             "blockbeats_api_key": self.blockbeats_key_var.get().strip(),
+            "lunarcrush_api_key": self.lunarcrush_key_var.get().strip(),
             "ticker": self.ticker_var.get().strip(),
             "trade_date": self.date_var.get().strip(),
             "max_debate_rounds": self.debate_rounds_var.get(),
@@ -206,6 +217,7 @@ class TradingAgentsGUI:
         self.deep_model_var.set(cfg.get("deep_think_llm", "gpt-4o"))
         self.quick_model_var.set(cfg.get("quick_think_llm", "gpt-4o-mini"))
         self.blockbeats_key_var.set(cfg.get("blockbeats_api_key", ""))
+        self.lunarcrush_key_var.set(cfg.get("lunarcrush_api_key", ""))
         self.ticker_var.set(cfg.get("ticker", "BTC-USD"))
         self.date_var.set(cfg.get("trade_date", datetime.now().strftime("%Y-%m-%d")))
         self.debate_rounds_var.set(cfg.get("max_debate_rounds", 1))
@@ -366,6 +378,11 @@ class TradingAgentsGUI:
             bb_key = cfg.get("blockbeats_api_key", "")
             if bb_key:
                 os.environ["BLOCKBEATS_API_KEY"] = bb_key
+
+            # Set LunarCrush API key
+            lc_key = cfg.get("lunarcrush_api_key", "")
+            if lc_key:
+                os.environ["LUNARCRUSH_API_KEY"] = lc_key
 
             # Import here to avoid slow startup
             from tradingagents.graph.trading_graph import TradingAgentsGraph

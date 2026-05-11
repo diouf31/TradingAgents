@@ -4,20 +4,34 @@ from datetime import datetime, timedelta
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from tradingagents.agents.utils.agent_utils import build_instrument_context, get_language_instruction
 from tradingagents.dataflows.interface import route_to_vendor
+from tradingagents.dataflows.social_sentiment import get_social_sentiment_data
 
 logger = logging.getLogger(__name__)
 
 
 def _prefetch_social_data(ticker: str, trade_date: str) -> str:
-    """Pre-fetch ticker news for social/sentiment analysis."""
+    """Pre-fetch social sentiment data + ticker news."""
+    sections = []
+
+    # Social sentiment (LunarCrush if paid, else CoinGecko + Fear & Greed)
+    try:
+        sentiment = get_social_sentiment_data(ticker, trade_date)
+        sections.append(sentiment)
+    except Exception as e:
+        logger.warning(f"Social sentiment fetch failed: {e}")
+        sections.append(f"[Social sentiment data unavailable: {e}]")
+
+    # Supplement: ticker news for context
     end_date = trade_date
     start_dt = datetime.strptime(trade_date, "%Y-%m-%d") - timedelta(days=7)
     start_date = start_dt.strftime("%Y-%m-%d")
-
     try:
-        return route_to_vendor("get_news", ticker, start_date, end_date)
+        news = route_to_vendor("get_news", ticker, start_date, end_date)
+        sections.append(news)
     except Exception as e:
-        return f"[News data unavailable: {e}]"
+        sections.append(f"[News data unavailable: {e}]")
+
+    return "\n\n".join(sections)
 
 
 def create_social_media_analyst(llm):
